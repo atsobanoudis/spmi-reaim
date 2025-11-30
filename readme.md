@@ -8,12 +8,14 @@ This repository contains all materials for the preliminary **RE-AIM cross-site a
 spmi-reaim/
 ├─ data-raw/        # Original data inputs
 ├─ data/            # Cleaned, analysis-ready datasets
+├─ figures/         # Exported plots
 ├─ R/               # Reusable scripts for data cleaning and analysis
 │   ├─ 01_clean_reaim.R      # Converts raw RE-AIM table → site-level dataset
-│   └─ 02_analysis_reaim.R   # Exploratory analysis sandbox
+│   ├─ 02_analysis_reaim.R   # Exploratory analysis sandbox
+│   └─ requirements.R        # List of required packages
+├─ renv/            # R virtual environment  
 ├─ reports/         # R Markdown / Quarto deliverables
 │   └─ reaim_report.Rmd
-├─ figs/            # Exported plots (if needed)
 └─ README.md        # Project overview
 ```
 
