@@ -5,7 +5,8 @@ required_packages <- c(
   "dplyr",
   "tidyr",
   "stringr",
-  "readr"
+  "readr",
+  "janitor"
 )
 
 install_if_missing <- function(pkgs) {
