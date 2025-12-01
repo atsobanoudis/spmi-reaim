@@ -37,7 +37,7 @@ subsection_map <- list(
 cleaned_labels <- reaim_table |>
   rename(label = 1) |>
   mutate(
-    label = trimws(label),
+    label = stringr::str_remove(trimws(label), ":$"),
     section = dplyr::case_when(
       label %in% section_labels ~ label,
       stringr::str_detect(label, stringr::regex("^Substance use", ignore_case = TRUE)) ~ "Substance use",
