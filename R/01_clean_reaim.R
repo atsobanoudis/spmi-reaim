@@ -13,6 +13,7 @@ section_labels <- c(
   "Effectiveness*",
   "Patient Factors*",
   "Comorbidity score, Charlson",
+  "Substance use:",
   "Utilization During Follow-up*",
   "Case management",
   "Pharmacist visits"
@@ -20,6 +21,11 @@ section_labels <- c(
 
 subsection_map <- list(
   `Case management` = c("Year 1", "Year 2", "Any"),
+  `Substance use` = c(
+    "Alcohol use disorder",
+    "Drug use disorder",
+    "Alcohol or drug use disorder"
+  ),
   `Pharmacist visits` = c(
     "Intake, any",
     "Return visit, any",
@@ -28,16 +34,21 @@ subsection_map <- list(
   )
 )
 
-cleaned <- reaim_table |>
+cleaned_labels <- reaim_table |>
   rename(label = 1) |>
   mutate(
     label = trimws(label),
-    section = if_else(label %in% section_labels, label, NA_character_)
+    section = dplyr::case_when(
+      label %in% section_labels ~ label,
+      stringr::str_detect(label, stringr::regex("^Substance use", ignore_case = TRUE)) ~ "Substance use",
+      TRUE ~ NA_character_
+    )
   ) |>
   tidyr::fill(section) |>
   mutate(
     subsection = dplyr::case_when(
       section == "Case management" & label %in% subsection_map$`Case management` ~ label,
+      section == "Substance use" & label %in% subsection_map$`Substance use` ~ label,
       section == "Pharmacist visits" & label %in% subsection_map$`Pharmacist visits` ~ label,
       TRUE ~ NA_character_
     )
@@ -56,6 +67,9 @@ label_map <- tibble::tribble(
   "Patient Factors*", NA, "Medicaid insurance", "medicaid",
   "Patient Factors*", NA, "Past hospitalization", "past_hosp",
   "Comorbidity score, Charlson", NA, "Mean (SD)", "charlson_mean",
+  "Substance use", "Alcohol use disorder", "Alcohol use disorder", "substance_alcohol",
+  "Substance use", "Drug use disorder", "Drug use disorder", "substance_drug",
+  "Substance use", "Alcohol or drug use disorder", "Alcohol or drug use disorder", "substance_any",
   "Case management", "Year 1", "Year 1", "case_mgmt_y1",
   "Case management", "Year 2", "Year 2", "case_mgmt_y2",
   "Case management", "Any", "Any", "case_mgmt_any",
@@ -68,7 +82,7 @@ label_map <- tibble::tribble(
   "Pharmacist visits", NA, "median (Q1-Q3)", "pharm_return_median"
 )
 
-cleaned <- cleaned |>
+mapped_rows <- cleaned_labels |>
   left_join(label_map, by = c("section", "subsection", "label")) |>
   mutate(
     var_name = dplyr::coalesce(
@@ -77,9 +91,12 @@ cleaned <- cleaned |>
     )
   )
 
+# Keep explicit checkpoint for mapped rows.
+mapped_checkpoint <- mapped_rows
+
 # Drop rows that are pure headers with no data in any site columns.
-site_cols <- setdiff(names(cleaned), c("label", "section", "subsection", "var_name"))
-cleaned <- cleaned |>
+site_cols <- setdiff(names(mapped_rows), c("label", "section", "subsection", "var_name"))
+cleaned <- mapped_rows |>
   filter(dplyr::if_any(dplyr::all_of(site_cols), ~ !is.na(.)))
 
 # ---- Long format, parse values, pivot wide -------------------------------
@@ -92,18 +109,60 @@ long_tbl <- cleaned |>
   ) |>
   mutate(value_chr = as.character(value)) |>
   mutate(
-    n = dplyr::if_else(
-      stringr::str_detect(value_chr, "\\("),
+    has_paren = stringr::str_detect(value_chr, "\\("),
+    row_type = dplyr::case_when(
+      stringr::str_detect(var_name, "mean$") |
+        stringr::str_detect(label, stringr::regex("^mean", ignore_case = TRUE)) ~ "mean",
+      stringr::str_detect(var_name, "median$") |
+        stringr::str_detect(label, stringr::regex("^median", ignore_case = TRUE)) ~ "median",
+      TRUE ~ "count_pct"
+    ),
+    count = dplyr::if_else(
+      row_type == "count_pct" & has_paren,
       readr::parse_number(stringr::str_replace(value_chr, "\\s*\\(.*", "")),
       NA_real_
     ),
-    pct = dplyr::if_else(
-      stringr::str_detect(value_chr, "\\("),
+    pct = dplyr::case_when(
+      row_type == "count_pct" & has_paren ~ round(
+        readr::parse_number(stringr::str_extract(value_chr, "(?<=\\().*?(?=\\))")),
+        digits = 1
+      ),
+      row_type == "count_pct" & !has_paren ~ round(
+        readr::parse_number(value_chr),
+        digits = 1
+      ),
+      TRUE ~ NA_real_
+    ),
+    mean = dplyr::if_else(
+      row_type == "mean",
+      readr::parse_number(stringr::str_replace(value_chr, "\\s*\\(.*", "")),
+      NA_real_
+    ),
+    sd = dplyr::if_else(
+      row_type == "mean",
       readr::parse_number(stringr::str_extract(value_chr, "(?<=\\().*?(?=\\))")),
-      readr::parse_number(value_chr)
+      NA_real_
+    ),
+    median = dplyr::if_else(
+      row_type == "median",
+      readr::parse_number(stringr::str_replace(value_chr, "\\s*\\(.*", "")),
+      NA_real_
+    ),
+    q1 = dplyr::if_else(
+      row_type == "median",
+      readr::parse_number(stringr::str_extract(value_chr, "(?<=\\().*?(?=-)")),
+      NA_real_
+    ),
+    q3 = dplyr::if_else(
+      row_type == "median",
+      readr::parse_number(stringr::str_extract(value_chr, "(?<=-).*(?=\\))")),
+      NA_real_
     )
   ) |>
-  select(-value, -value_chr)
+  select(-value, -value_chr, -has_paren)
+
+# Parsed components checkpoint.
+parsed_components <- long_tbl
 
 key_vars <- c(
   "reach_abs",
@@ -116,6 +175,9 @@ key_vars <- c(
   "medicaid",
   "past_hosp",
   "charlson_mean",
+  "substance_alcohol",
+  "substance_drug",
+  "substance_any",
   "case_mgmt_y1",
   "case_mgmt_y2",
   "case_mgmt_any",
@@ -128,9 +190,44 @@ key_vars <- c(
   "pharm_return_median"
 )
 
-site_level <- long_tbl |>
+site_components <- long_tbl |>
   filter(var_name %in% key_vars) |>
-  select(site, var_name, pct) |>
-  tidyr::pivot_wider(names_from = var_name, values_from = pct)
+  mutate(
+    # Restrict components to relevant row types to avoid spurious all-NA columns.
+    count = dplyr::if_else(row_type == "count_pct", count, NA_real_),
+    pct = dplyr::if_else(row_type == "count_pct", pct, NA_real_),
+    mean = dplyr::if_else(row_type == "mean", mean, NA_real_),
+    sd = dplyr::if_else(row_type == "mean", sd, NA_real_),
+    median = dplyr::if_else(row_type == "median", median, NA_real_),
+    q1 = dplyr::if_else(row_type == "median", q1, NA_real_),
+    q3 = dplyr::if_else(row_type == "median", q3, NA_real_)
+  ) |>
+  select(
+    site,
+    var_name,
+    count,
+    pct,
+    mean,
+    sd,
+    median,
+    q1,
+    q3
+  )
+
+site_components_long <- site_components |>
+  tidyr::pivot_longer(
+    cols = c(count, pct, mean, sd, median, q1, q3),
+    names_to = "component",
+    values_to = "value"
+  )
+
+site_level <- site_components_long |>
+  # Drop empty component rows to avoid creating all-NA columns downstream.
+  dplyr::filter(!is.na(value)) |>
+  tidyr::pivot_wider(
+    names_from = c("var_name", "component"),
+    values_from = value,
+    names_glue = "{var_name}_{component}"
+  )
 
 readr::write_csv(site_level, file.path("data", "reaim_site_level.csv"))
