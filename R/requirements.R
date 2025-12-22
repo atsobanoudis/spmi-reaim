@@ -7,7 +7,8 @@ required_packages <- c(
   "stringr",
   "readr",
   "janitor",
-  "ggprism"
+  "ggprism",
+  "tidyverse"
 )
 
 install_if_missing <- function(pkgs) {
