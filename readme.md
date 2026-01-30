@@ -22,4 +22,4 @@ spmi-reaim/
 
 1. Raw files into `data-raw/`.
 2. ~~Run `R/01_clean_reaim.R` to generate~~ Manually clean raw data into `data/reaim_site_level.csv`.
-3. Knit `reports/reaim_report.Rmd` to produce the HTML report and figures.
+3. Knit `reports/reaim_report.Rmd` to produce the HTML report and figures. (Not done)
